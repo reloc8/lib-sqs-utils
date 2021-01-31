@@ -1,0 +1,64 @@
+name: Update version and create release
+
+on:
+  pull_request:
+    types: [closed]
+    branches: 
+      - master
+
+jobs:
+
+  fetch-version:
+    if: github.event.pull_request.merged
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v2
+      - name: Fetch latest release version
+        id: fetch-latest-release
+        uses: reloc8/action-latest-release-version@1.0.0
+      - uses: actions/setup-python@v2
+        with:
+          python-version: 3.7
+      - name: Choose new release version
+        id: choose-release-version
+        uses: reloc8/action-choose-release-version@1.0.0
+        with:
+          source-branch: ${{ github.event.pull_request.head.ref }}
+          latest-version: ${{ steps.fetch-latest-release.outputs.latest-release }}
+    outputs:
+      new-version: ${{ steps.choose-release-version.outputs.new-version }}
+
+  update-version:
+    needs: fetch-version
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v2
+      - run: git pull --ff-only
+      - name: Update version file
+        run: echo ${{ needs.fetch-version.outputs.new-version }} > version
+      - name: Push local repository changes
+        id: push-local-repository-changes
+        uses: reloc8/action-push-local-changes@1.0.0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          commit-message: "Version ${{ needs.fetch-version.outputs.new-version }}"
+    outputs:
+      commit-hash: ${{ steps.push-local-repository-changes.outputs.commit-hash }}
+
+  create-release:
+    needs: [fetch-version, update-version]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v2
+      - run: git pull --ff-only
+      - name: Create new release
+        uses: actions/create-release@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tag_name: ${{ needs.fetch-version.outputs.new-version }}
+          release_name: ${{ needs.fetch-version.outputs.new-version }}
+          draft: false
+          prerelease: false
+          commitish: ${{ needs.update-version.outputs.commit-hash }}
